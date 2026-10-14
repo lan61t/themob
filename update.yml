@@ -1,0 +1,67 @@
+name: update-site
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"        # every 10 minutes (GitHub may delay a run by a few minutes at busy times)
+  workflow_dispatch:               # the "Run workflow" button: force a refresh from the GitHub site or app
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: lapis-update
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unpack code and data
+        run: unzip -q -o lapis_bundle.zip
+
+      - name: Restore saved state (roster snapshots, move log, prediction log, season box lines)
+        run: |
+          URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git clone --quiet --depth 1 --branch state "$URL" state_wt 2>/dev/null || {
+            mkdir state_wt; git -C state_wt init -q -b state; git -C state_wt remote add origin "$URL"; }
+          mkdir -p data/live
+          cp -r state_wt/live/. data/live/ 2>/dev/null || true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Build the site
+        run: python scripts/build_site.py --out site
+
+      - name: Save state
+        run: |
+          find data/live -name 'espn_box_*.json' -mtime +21 -delete 2>/dev/null || true
+          mkdir -p state_wt/live
+          rsync -a --delete data/live/ state_wt/live/
+          cd state_wt
+          git config user.name "lapis-bot"
+          git config user.email "lapis-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -q -m "state $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q origin HEAD:state
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
