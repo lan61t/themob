@@ -2,7 +2,7 @@ name: update-site
 
 on:
   schedule:
-    - cron: "*/10 * * * *"        # every 10 minutes (GitHub may delay a run by a few minutes at busy times)
+    - cron: "*/5 * * * *"        # every 10 minutes (GitHub may delay a run by a few minutes at busy times)
   workflow_dispatch:               # the "Run workflow" button: force a refresh from the GitHub site or app
   push:
     branches: [main]
